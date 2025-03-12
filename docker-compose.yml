@@ -1,0 +1,13 @@
+services:
+  activeants_interface:
+    image: activeants_interface
+    command: python run_services/run.py
+    privileged: true
+    network_mode: "host"
+    user: root
+    build: .
+    environment:
+      - SEREACT_PORT=8000
+      - ACTIVEANTS_URL=http://localhost:8001
+      - SLEEP_TIME_SECONDS=3
+      - STATION_ID=SEREACT_1
