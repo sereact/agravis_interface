@@ -26,7 +26,6 @@ setup(
         "aiohttp-cors",
         "requests",
         "asyncio",
-        "tinydb",
         "colorlog",
     ],
     version=get_version("agravis_interface/__init__.py"),

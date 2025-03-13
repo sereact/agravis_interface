@@ -2,7 +2,6 @@ import random
 import asyncio
 import json
 import os
-from tinydb import TinyDB, Query
 from aiohttp import web
 import aiohttp
 import aiohttp_cors
@@ -25,13 +24,10 @@ def generate_timestamp() -> str:
 
 
 PORT = os.getenv("SEREACT_PORT", 8000)
-ACTIVEANTS_URL = os.getenv("ACTIVEANTS_URL", "http://localhost:8001")
-SLEEP_TIME_SECONDS = int(os.getenv("SLEEP_TIME_SECONDS", 3))
 MAX_ITEMS_PER_PALLET = int(os.getenv("MAX_ITEMS_PER_PALLET", 20))
 MAX_ITEMS_PER_PLACE = int(os.getenv("MAX_ITEMS_PER_PLACE", 7))
 TIME_PER_PICK = int(os.getenv("TIME_PER_PICK", 5))
 
-STATION_ID = os.getenv("STATION_ID", "SEREACT_1")
 
 EXAMPLE_GRASP_UNTIL_EMPTY = {
     "jsonrpc": "2.0",
@@ -46,11 +42,11 @@ EXAMPLE_GRASP_UNTIL_EMPTY = {
 
 
 EXAMPLE_ROBOT_CHECK_READY = {
-    {
+    
     "jsonrpc": "2.0",
     "id": 1,
     "method": "robot.check_ready",
-}
+
 }
 
 EXAMPLE_ROBOT_CHECK_READY_RESPONSE = {
@@ -94,67 +90,14 @@ EXAMPLE_ERROR_RESPONSE = {
     "id": 2
 }
 
-class PicksDB:
-    def __init__(self) -> None:
-        self.db = TinyDB("picks.json")
-        self.picks = self.db.table("picks")
-        self.query = Query()
-        self.remove_all_picks()
-
-    def remove_all_picks(self):
-        self.picks.truncate()
-        self.cancelled_picks.truncate()
-        self.completed_picks.truncate()
-        self.cell_status_updates.truncate()
-
-    def add_completed_pick(self, pick):
-        pick_id = pick["jobId"]
-        pick["_id"] = pick_id
-        self.completed_picks.insert(pick)
-
-    def add_new_cell_status(self, status):
-        self.cell_status_updates.insert(status)
-
-    def get_cell_status(self):
-        all_statuses = self.cell_status_updates.all()
-        if all_statuses:
-            return sorted(all_statuses, key=lambda x: x["timeStamp"], reverse=True)[0]
-        else:
-            return {}
-
-    def add_pick(self, pick):
-        pick["state"] = "PENDING"
-        self.picks.insert(pick)
-
-    def get_active_picks(self):
-        return self.picks.all()
-
-    def remove_pick(self, pick_id):
-        self.picks.remove(self.query._id == pick_id)
-
-    def update_pick(self, pick_id, update_dict):
-        # print(f"Updating pick {pick_id} with {update_dict}")
-        # check if self.picks contains the pick_id
-        if not self.picks.contains(self.query._id == pick_id):
-            raise ValueError(f"Pick {pick_id} not found")
-        # else:
-        #     print("Pick found")
-        self.picks.update(update_dict, self.query._id == pick_id)
-
-    def get_pick(self, pick_id):
-        return self.picks.get(self.query._id == pick_id)
-
-
 
 class Server:
     def __init__(self, host="0.0.0.0", port=PORT):
         self.host = host
         self.port = port
         self.loop = asyncio.get_event_loop()
-        self.loop.create_task(self.main_loop())
         self.setup_app()
-        self.request = None
-        self.request_called = None
+
         self.ws_clients = set()
         
         self.error_code = ""
@@ -288,14 +231,18 @@ class Server:
         method = msg.get("method")
         params = msg.get("params")
         call_res = None
+        logger.info(f"Received request: {msg}")
         try:
             if method=="robot.grasp_until_empty":
-                if header.get("X-RAISE-ERROR"):
-                    raise JsonRpcError("ITEM_NOT_PICKABLE", {"itemsPicked": 1, "itemsPlaced": 0, "isTargetFull": False, "isPalletEmpty": False})
-                await call_res= self.grasp_until_empty(params)
+                if int(header.get("X-RAISE-ERROR", "0")):
+                    logger.info("Raising error")
+                    pick_area = params["pickArea"]
+                    self.reset_item_picked(pick_area)
+                    raise JsonRpcError("ITEM_DROPPED_UNSAFE", {"itemsPicked": 1, "itemsPlaced": 0, "isTargetFull": False, "isPalletEmpty": False})
+                call_res= await self.grasp_until_empty(params)
 
             elif method=="robot.check_ready":        
-                await call_res = self.check_ready(params)
+                call_res = await self.check_ready(params)
             res["result"] = call_res
         except JsonRpcError as e:
             description = ERROR_CODE_DESCRIPTION[e.code]
@@ -327,6 +274,7 @@ class Server:
                     "isPalletEmpty": False,
                 }
         if self.is_picking:
+            logger.info("Robot is in execution")
             raise JsonRpcError("ROBOT_IN_EXECUTION", data)
         
         if "palletId" not in params:
@@ -342,24 +290,29 @@ class Server:
         
         pick_area_empty = self.pick_area_empty[pick_area]
         if pick_area_empty:
+            logger.info("Pallet is empty")
             self.reset_item_picked(pick_area)
 
-
+        logger.info(f"Grasping until empty for pallet {pallet_id} from pick area {pick_area} to place area {params['placeArea']}")
         self.is_picking = True
         item_left_from_pallet = self.max_item_per_pallet - self.item_picked[pick_area]
-
+        logger.info(f"Item left from pallet: {item_left_from_pallet}") 
         picks_items = random.randint(3, MAX_ITEMS_PER_PLACE)
         target_full = True
         if picks_items > item_left_from_pallet:
             picks_items = item_left_from_pallet
             target_full = False
 
+        logger.info(f"Grasping {picks_items} items")
         self.update_item_picked(pick_area, picks_items)
+
         data["itemsPicked"] = picks_items
         data["itemsPlaced"] = picks_items
         data["isTargetFull"] = target_full
         data["isPalletEmpty"] = self.pick_area_empty[pick_area]
-        await asyncio.sleep(SLEEP_TIME_SECONDS*picks_items)
+        await asyncio.sleep(TIME_PER_PICK*picks_items)
+        logger.info(f"Item picked: {self.item_picked[pick_area]}")
+        logger.info(f"Pick area empty: {self.pick_area_empty[pick_area]}")
         self.is_picking = False
         return data
     
