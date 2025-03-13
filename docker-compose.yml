@@ -1,10 +1,10 @@
 services:
-  agravis_interface:
-    image: activeants_mock_interface
+  agravis_mock_interface:
+    image: agravis_mock_interface
     command: python run_services/run.py
     privileged: true
     network_mode: "host"
     user: root
     build: .
     environment:
-      - SEREACT_PORT=8000
+      - SEREACT_PORT=8080

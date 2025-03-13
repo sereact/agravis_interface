@@ -21,3 +21,4 @@ RUN groupadd -g $GID usergroup && \
 
 USER user
 
+EXPOSE 8000

@@ -1,2 +1,2 @@
 python setup.py bdist_wheel -d wheelhouse
-docker build -t activeants_mock_interface .
+docker build -t agravis_mock_interface .

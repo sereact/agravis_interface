@@ -23,7 +23,7 @@ def generate_timestamp() -> str:
     return datetime.now(tz=timezone.utc).isoformat()
 
 
-PORT = os.getenv("SEREACT_PORT", 8000)
+PORT = int(os.getenv("SEREACT_PORT", 8000))
 MAX_ITEMS_PER_PALLET = int(os.getenv("MAX_ITEMS_PER_PALLET", 20))
 MAX_ITEMS_PER_PLACE = int(os.getenv("MAX_ITEMS_PER_PLACE", 7))
 TIME_PER_PICK = int(os.getenv("TIME_PER_PICK", 5))
@@ -168,6 +168,7 @@ class Server:
     def setup_app(self):
         self.app = web.Application()
         self.app.router.add_post("/api", self.handle_api_call)
+        self.app.router.add_get("/", self.index)
         self.setup_cors()
 
         for route in list(self.app.router.routes()):
