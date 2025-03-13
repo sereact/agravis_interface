@@ -1,5 +1,5 @@
 services:
-  activeants_interface:
+  agravis_interface:
     image: activeants_mock_interface
     command: python run_services/run.py
     privileged: true

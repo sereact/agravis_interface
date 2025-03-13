@@ -314,7 +314,7 @@ class Server:
         logger.info(f"Item picked: {self.item_picked[pick_area]}")
         logger.info(f"Pick area empty: {self.pick_area_empty[pick_area]}")
         self.is_picking = False
-        return data
+        return self.create_response(data, success=True)
     
     def create_response(self, payload, success=True):
         return {"success": success, "payload": payload}
